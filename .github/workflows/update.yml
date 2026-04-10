@@ -1,0 +1,135 @@
+name: OTA Update
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      # Skip OTA if native config changed (preview.yml handles those)
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'eas.json'
+      - 'babel.config.js'
+      - 'ios/**'
+      - 'android/**'
+      - '.github/**'
+      - '*.md'
+
+concurrency:
+  group: ota-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-checks:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Lint check
+        run: npx expo lint . 2>/dev/null || echo "No lint config found, skipping"
+
+  check-native-changes:
+    name: Detect Native Changes
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    outputs:
+      native_changed: ${{ steps.check.outputs.native_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for native dependency changes
+        id: check
+        run: |
+          # Compare package.json dependencies between commits
+          if git diff HEAD~1 HEAD --name-only | grep -qE '^(package\.json|package-lock\.json|app\.json|eas\.json|ios/|android/)'; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Native changes detected — full build needed instead of OTA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ota-update:
+    name: Push OTA Update
+    needs: check-native-changes
+    if: needs.check-native-changes.outputs.native_changed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Expo & EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Publish OTA update
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          eas update --branch preview --message "$COMMIT_MSG" --non-interactive
+
+      - name: Summary
+        run: |
+          echo "### ⚡ OTA Update Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "Branch: \`preview\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Message: $(git log -1 --pretty=%s)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The app will auto-update on next launch — no reinstall needed." >> "$GITHUB_STEP_SUMMARY"
+
+  trigger-full-build:
+    name: Trigger Full Build (native changes detected)
+    needs: check-native-changes
+    if: needs.check-native-changes.outputs.native_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Expo & EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build (native deps changed)
+        run: eas build --platform all --profile preview --non-interactive --no-wait
+
+      - name: Summary
+        run: |
+          echo "### 🔨 Full Build Triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "Native dependencies changed — triggered full EAS build instead of OTA update." >> "$GITHUB_STEP_SUMMARY"

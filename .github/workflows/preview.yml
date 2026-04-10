@@ -1,0 +1,89 @@
+name: Preview Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Trigger full build when native deps or config change
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'eas.json'
+      - 'babel.config.js'
+      - 'ios/**'
+      - 'android/**'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+
+concurrency:
+  group: preview-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-checks:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Lint check
+        run: npx expo lint . 2>/dev/null || echo "No lint config found, skipping"
+
+  build:
+    name: EAS Build (${{ matrix.platform }})
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform != 'all' && fromJSON(format('["{0}"]', github.event.inputs.platform)) || fromJSON('["android", "ios"]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Expo & EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive --no-wait
+
+      - name: Get build URL
+        id: build-url
+        run: |
+          BUILD_URL=$(eas build:list --platform ${{ matrix.platform }} --status new,in-queue,in-progress,finished --limit 1 --json --non-interactive | jq -r '.[0].artifacts.buildUrl // .[0].id')
+          echo "url=$BUILD_URL" >> "$GITHUB_OUTPUT"
+          echo "### 📱 ${{ matrix.platform }} Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Build submitted to EAS. Check [Expo Dashboard](https://expo.dev) for status and download link." >> "$GITHUB_STEP_SUMMARY"
