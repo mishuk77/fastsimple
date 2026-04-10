@@ -12,7 +12,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/YOUR_PROJECT_ID",
+      "url": "https://u.expo.dev/5f8b29e8-bf0e-42d8-bb4c-c82a151e9a9b",
       "fallbackToCacheTimeout": 0
     },
     "splash": {
@@ -42,7 +42,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_PROJECT_ID"
+        "projectId": "5f8b29e8-bf0e-42d8-bb4c-c82a151e9a9b"
       }
     }
   }
