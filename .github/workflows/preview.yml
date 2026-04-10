@@ -56,6 +56,7 @@ jobs:
     needs: quality-checks
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         platform: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform != 'all' && fromJSON(format('["{0}"]', github.event.inputs.platform)) || fromJSON('["android", "ios"]') }}
     steps:
@@ -77,11 +78,31 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build
-        run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive --no-wait
+      - name: Build and wait
+        id: build
+        run: |
+          # Run build and wait for completion — full logs stream to Actions output
+          eas build --platform ${{ matrix.platform }} --profile preview --non-interactive 2>&1 | tee /tmp/eas-build.log
+          echo "build_exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Build summary
+        if: always()
         run: |
-          echo "### 📱 ${{ matrix.platform }} Build Submitted" >> "$GITHUB_STEP_SUMMARY"
-          echo "Build is running on EAS. Download link will be available at:" >> "$GITHUB_STEP_SUMMARY"
-          echo "[expo.dev/accounts/projects/fastsimple/builds](https://expo.dev)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📱 ${{ matrix.platform }} Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          # Extract build URL or error from logs
+          if grep -q "Build details" /tmp/eas-build.log 2>/dev/null; then
+            BUILD_URL=$(grep "Build details" /tmp/eas-build.log | grep -oP 'https://\S+' | head -1)
+            echo "✅ Build submitted: [View on Expo]($BUILD_URL)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if grep -q "https://expo.dev/artifacts" /tmp/eas-build.log 2>/dev/null; then
+            ARTIFACT_URL=$(grep "https://expo.dev/artifacts" /tmp/eas-build.log | grep -oP 'https://\S+' | head -1)
+            echo "📦 **Download:** [$ARTIFACT_URL]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if grep -qi "error" /tmp/eas-build.log 2>/dev/null; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "#### Errors found in build log:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -i "error" /tmp/eas-build.log | tail -20 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
