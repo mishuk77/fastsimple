@@ -80,10 +80,8 @@ jobs:
       - name: Build
         run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive --no-wait
 
-      - name: Get build URL
-        id: build-url
+      - name: Build summary
         run: |
-          BUILD_URL=$(eas build:list --platform ${{ matrix.platform }} --status new,in-queue,in-progress,finished --limit 1 --json --non-interactive | jq -r '.[0].artifacts.buildUrl // .[0].id')
-          echo "url=$BUILD_URL" >> "$GITHUB_OUTPUT"
-          echo "### 📱 ${{ matrix.platform }} Build" >> "$GITHUB_STEP_SUMMARY"
-          echo "Build submitted to EAS. Check [Expo Dashboard](https://expo.dev) for status and download link." >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📱 ${{ matrix.platform }} Build Submitted" >> "$GITHUB_STEP_SUMMARY"
+          echo "Build is running on EAS. Download link will be available at:" >> "$GITHUB_STEP_SUMMARY"
+          echo "[expo.dev/accounts/projects/fastsimple/builds](https://expo.dev)" >> "$GITHUB_STEP_SUMMARY"
