@@ -38,7 +38,9 @@
         {
           "icon": "./assets/icon.png"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {
